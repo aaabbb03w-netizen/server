@@ -5,6 +5,7 @@ const admin = require("firebase-admin");
 const app = express();
 app.use(bodyParser.json());
 
+// Load Firebase service account
 const serviceAccount = require("./serviceAccountKey.json");
 
 admin.initializeApp({
@@ -13,10 +14,10 @@ admin.initializeApp({
 
 // root route
 app.get("/", (req, res) => {
-    res.send("WhatsApp Automation Server Working!");
+    res.send("WhatsApp Automation Server Running!");
 });
 
-// API to send server command
+// API to send FCM command
 app.post("/sendCommand", async (req, res) => {
     try {
         const { token, number, message } = req.body;
@@ -43,5 +44,5 @@ app.post("/sendCommand", async (req, res) => {
 // Render uses dynamic PORT
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log("SERVER RUNNING ON PORT: " + PORT);
+    console.log("Server running on port " + PORT);
 });
