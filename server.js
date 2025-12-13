@@ -1,76 +1,64 @@
-const express = require("express");
-const bodyParser = require("body-parser");
+import express from "express";
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json());
 
-const PRIVATE_KEY = "12345";
+const PORT = 3000;
 
-let devices = new Set();   // all registered deviceIds
-let tasks = {};            // deviceId -> sms task
+// In-memory storage
+const devices = new Set();
+const smsQueue = {}; // deviceId -> sms data
 
-// Health check
-app.get("/", (req, res) => {
-  res.send("SMS Control Server Running ✅");
-});
-
-// 1️⃣ REGISTER DEVICE
+// Register device
 app.post("/register", (req, res) => {
   const { deviceId } = req.body;
+
   if (!deviceId) {
     return res.status(400).json({ error: "deviceId required" });
   }
 
   devices.add(deviceId);
+  console.log("Registered:", deviceId);
+
   res.json({ status: "registered", deviceId });
 });
 
-// 2️⃣ FETCH ALL DEVICES (PRIVATE KEY)
-app.post("/fetch", (req, res) => {
-  const key = req.headers["x-private-key"];
-
-  if (key !== PRIVATE_KEY) {
-    return res.status(401).json({ error: "Invalid private key" });
-  }
-
-  res.json({
-    total: devices.size,
-    devices: Array.from(devices)
-  });
+// Fetch all device IDs
+app.get("/fetch", (req, res) => {
+  res.json({ devices: Array.from(devices) });
 });
 
-// 3️⃣ SEND SMS COMMAND
+// Send SMS command
 app.post("/sendsms", (req, res) => {
   const { deviceId, number, message } = req.body;
+
+  if (!deviceId || !number || !message) {
+    return res.status(400).json({ error: "deviceId, number, message required" });
+  }
 
   if (!devices.has(deviceId)) {
     return res.status(404).json({ error: "Device not registered" });
   }
 
-  tasks[deviceId] = { number, message };
-  res.json({ status: "sms_queued" });
+  smsQueue[deviceId] = { number, message };
+  console.log("SMS queued for:", deviceId);
+
+  res.json({ status: "queued" });
 });
 
-// 4️⃣ DEVICE POLLING
-app.get("/task/:deviceId", (req, res) => {
+// App polls this
+app.get("/poll/:deviceId", (req, res) => {
   const deviceId = req.params.deviceId;
 
-  if (tasks[deviceId]) {
-    const task = tasks[deviceId];
-    delete tasks[deviceId];
-
-    return res.json({
-      send: true,
-      number: task.number,
-      message: task.message
-    });
+  if (smsQueue[deviceId]) {
+    const data = smsQueue[deviceId];
+    delete smsQueue[deviceId];
+    return res.json({ send: true, ...data });
   }
 
   res.json({ send: false });
 });
 
-// Render compatible port
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log(`Server running on http://localhost:${PORT}`);
 });
