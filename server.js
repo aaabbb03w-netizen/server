@@ -6,7 +6,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.json({ limit: "15mb" }));
+app.use(express.json({ limit: "20mb" }));
 
 /**
  * In-memory stores
@@ -16,208 +16,129 @@ const commands = {};       // deviceId -> [ { id, number, message } ]
 const smsData = {};        // deviceId -> latest SMS
 const contactsStore = {};  // deviceId -> { contacts, updatedAt }
 
-//
-// ------------------ Device Registration ------------------
-//
+/**
+ * ------------------ Device Registration ------------------
+ */
 app.post("/register", (req, res) => {
-    const { deviceId, model } = req.body;
+  const { deviceId, model } = req.body;
 
-    if (!deviceId) {
-        return res.status(400).json({
-            success: false,
-            message: "deviceId required"
-        });
-    }
+  if (!deviceId) {
+    return res.status(400).json({ success: false, message: "deviceId required" });
+  }
 
-    devices[deviceId] = {
-        deviceId,
-        model: model || "unknown",
-        registeredAt: new Date()
-    };
+  devices[deviceId] = {
+    deviceId,
+    model: model || "unknown",
+    registeredAt: new Date()
+  };
 
-    if (!commands[deviceId]) commands[deviceId] = [];
-    if (!smsData[deviceId]) smsData[deviceId] = [];
+  if (!commands[deviceId]) commands[deviceId] = [];
+  if (!smsData[deviceId]) smsData[deviceId] = [];
 
-    res.json({
-        success: true,
-        deviceId
-    });
+  res.json({ success: true, deviceId });
 });
 
-//
-// ------------------ Fetch all devices ------------------
-//
+/**
+ * ------------------ Fetch all devices ------------------
+ */
 app.get("/fetch", (req, res) => {
-    res.json({
-        success: true,
-        devices: Object.values(devices)
-    });
+  res.json({ success: true, devices: Object.values(devices) });
 });
 
-//
-// ------------------ Send SMS command to device ------------------
-//
+/**
+ * ------------------ Send SMS command to device ------------------
+ */
 app.post("/sendsms", (req, res) => {
-    const { deviceId, number, message } = req.body;
+  const { deviceId, number, message } = req.body;
 
-    if (!devices[deviceId]) {
-        return res.status(404).json({
-            success: false,
-            message: "Device not found"
-        });
-    }
+  if (!devices[deviceId]) return res.status(404).json({ success: false, message: "Device not found" });
 
-    const cmd = {
-        id: uuidv4(),
-        number,
-        message
-    };
+  const cmd = { id: uuidv4(), number, message };
+  commands[deviceId].push(cmd);
 
-    commands[deviceId].push(cmd);
-
-    res.json({
-        success: true,
-        command: cmd
-    });
+  res.json({ success: true, command: cmd });
 });
 
-//
-// ------------------ Device polls for commands ------------------
-//
+/**
+ * ------------------ Device polls for commands ------------------
+ */
 app.get("/commands", (req, res) => {
-    const { deviceId } = req.query;
-
-    if (!commands[deviceId]) {
-        return res.json([]);
-    }
-
-    const pending = commands[deviceId];
-    commands[deviceId] = []; // clear after sending
-
-    res.json(pending);
+  const { deviceId } = req.query;
+  if (!commands[deviceId]) return res.json([]);
+  
+  const pending = commands[deviceId];
+  commands[deviceId] = []; // clear after sending
+  res.json(pending);
 });
 
-//
-// ------------------ Device sends latest SMS ------------------
-//
+/**
+ * ------------------ Device sends latest SMS ------------------
+ */
 app.post("/smsread", (req, res) => {
-    const { deviceId, sms } = req.body;
+  const { deviceId, sms } = req.body;
+  if (!deviceId || !sms) return res.status(400).json({ success: false, message: "deviceId or sms missing" });
 
-    if (!deviceId || !sms) {
-        return res.status(400).json({
-            success: false,
-            message: "deviceId or sms missing"
-        });
-    }
-
-    smsData[deviceId] = sms;
-
-    res.json({
-        success: true
-    });
+  smsData[deviceId] = sms;
+  res.json({ success: true });
 });
 
-//
-// ------------------ Fetch latest SMS of a device ------------------
-//
+/**
+ * ------------------ Fetch latest SMS of a device ------------------
+ */
 app.post("/get-sms", (req, res) => {
-    const { deviceId } = req.body;
+  const { deviceId } = req.body;
+  if (!deviceId) return res.status(400).json({ success: false, message: "deviceId required" });
 
-    if (!deviceId) {
-        return res.status(400).json({
-            success: false,
-            message: "deviceId required"
-        });
-    }
-
-    res.json({
-        success: true,
-        sms: smsData[deviceId] || []
-    });
+  res.json({ success: true, sms: smsData[deviceId] || [] });
 });
 
-//
-// ------------------ CONTACT API (ADDED PROPERLY) ------------------
-//
+/**
+ * ------------------ CONTACT API ------------------
+ */
 app.post("/contact", (req, res) => {
-    try {
-        const { deviceId, contacts } = req.body;
+  const { deviceId, contacts } = req.body;
 
-        if (!deviceId || !Array.isArray(contacts)) {
-            return res.status(400).json({
-                success: false,
-                message: "Invalid JSON payload"
-            });
-        }
+  if (!deviceId || !Array.isArray(contacts)) {
+    return res.status(400).json({ success: false, message: "Invalid JSON payload" });
+  }
 
-        // sanitize contacts
-        const cleanContacts = contacts
-            .filter(c => c && c.number)
-            .map(c => ({
-                name: c.name || "",
-                number: String(c.number).replace(/\s+/g, "")
-            }));
+  const cleanContacts = contacts
+    .filter(c => c && c.number)
+    .map(c => ({
+      name: c.name || "",
+      number: String(c.number).replace(/\s+/g, "")
+    }));
 
-        contactsStore[deviceId] = {
-            deviceId,
-            contacts: cleanContacts,
-            updatedAt: new Date().toISOString()
-        };
+  contactsStore[deviceId] = {
+    deviceId,
+    contacts: cleanContacts,
+    updatedAt: new Date().toISOString()
+  };
 
-        console.log(
-            `📞 Contacts received | deviceId=${deviceId} | total=${cleanContacts.length}`
-        );
+  console.log(`📞 Contacts | deviceId=${deviceId} | total=${cleanContacts.length}`);
 
-        res.json({
-            success: true,
-            deviceId,
-            totalContacts: cleanContacts.length,
-            message: "Contacts saved successfully"
-        });
-
-    } catch (err) {
-        console.error("CONTACT ERROR:", err);
-        res.status(500).json({
-            success: false,
-            message: "Internal server error"
-        });
-    }
+  res.json({ success: true, deviceId, totalContacts: cleanContacts.length, message: "Contacts saved successfully" });
 });
 
-//
-// ------------------ Fetch contacts of a device ------------------
-//
+/**
+ * GET contacts of a device
+ * /contact/:deviceId
+ */
 app.get("/contact/:deviceId", (req, res) => {
-    const data = contactsStore[req.params.deviceId];
+  const data = contactsStore[req.params.deviceId];
+  if (!data) return res.status(404).json({ success: false, message: "Device not found" });
 
-    if (!data) {
-        return res.status(404).json({
-            success: false,
-            message: "Device not found"
-        });
-    }
-
-    res.json({
-        success: true,
-        deviceId: data.deviceId,
-        totalContacts: data.contacts.length,
-        contacts: data.contacts
-    });
+  res.json({ success: true, deviceId: data.deviceId, totalContacts: data.contacts.length, contacts: data.contacts });
 });
 
-//
-// ------------------ Health Check ------------------
-//
+/**
+ * Health check
+ */
 app.get("/", (req, res) => {
-    res.json({
-        success: true,
-        message: "SMS Control Server running on Render"
-    });
+  res.json({ success: true, message: "SMS Control Server running on Render" });
 });
 
-//
-// ------------------ Start server ------------------
-//
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-});
+/**
+ * Start server
+ */
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
