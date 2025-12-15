@@ -88,6 +88,13 @@ app.post('/media/:deviceId', (req, res) => {
     res.send('OK');
 });
 
+// ------------------ JSON endpoint for gallery ------------------
+app.get('/media-json/:deviceId', (req, res) => {
+    const id = req.params.deviceId;
+    res.json(lastMedia[id] || []);
+});
+
+// ------------------ HTML list view ------------------
 app.get('/', (req, res) => {
     let html = `<h2>Live Media List</h2>`;
     for (const id in lastMedia) {
